@@ -5,6 +5,7 @@ import { retrieveRelevantChunks } from '@/lib/ai/rag'
 import { generateChatResponse } from '@/lib/ai/gemini'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
@@ -115,7 +116,7 @@ export async function POST(request: NextRequest) {
         sessionId: sessionId!,
         role: 'assistant',
         content: aiContent,
-        citations: citations as unknown as Record<string, unknown>[],
+        citations: citations as any,
         tokens: Math.round(aiContent.length / 4),
       },
     })

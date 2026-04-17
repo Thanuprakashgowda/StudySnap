@@ -6,6 +6,19 @@ import { MOCK_CHAT_SESSIONS, MOCK_MATERIALS } from '@/lib/data'
 import { formatRelativeTime } from '@/lib/utils'
 import type { ChatMessage } from '@/types'
 
+export default function TutorPage() {
+  const [sessions] = useState(MOCK_CHAT_SESSIONS)
+  const [activeSession, setActiveSession] = useState(sessions[0])
+  const [messages, setMessages] = useState<ChatMessage[]>(sessions[0]?.messages || [])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [selectedMaterial, setSelectedMaterial] = useState(MOCK_MATERIALS[0]?.id || '')
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
   const sendMessage = async () => {
     if (!input.trim() || loading) return
     const userMsg: ChatMessage = {

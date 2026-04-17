@@ -5,30 +5,20 @@ import GitHub from 'next-auth/providers/github'
 import Credentials from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import prisma from '@/lib/db'
+import { authConfig } from '@/auth.config'
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  ...authConfig,
   adapter: PrismaAdapter(prisma),
-
   providers: [
-    // ─── OAuth Providers ─────────────────────────────────────────────────────
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      authorization: {
-        params: {
-          prompt: 'consent',
-          access_type: 'offline',
-          response_type: 'code',
-        },
-      },
     }),
-
     GitHub({
       clientId: process.env.GITHUB_CLIENT_ID!,
       clientSecret: process.env.GITHUB_CLIENT_SECRET!,
     }),
-
-    // ─── Email + Password ─────────────────────────────────────────────────────
     Credentials({
       name: 'credentials',
       credentials: {
@@ -60,62 +50,45 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
-
-  session: {
-    strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
-  },
-
   callbacks: {
-    async jwt({ token, user, account }) {
+    ...authConfig.callbacks,
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id
         token.email = user.email
       }
-      // Fetch user role + plan from db
+      
+      // Fetch user details from DB for the session
+      // We wrap this in a check to ensure it only runs when we have a DB connection
+      // (which is true in APIs/Server Components where this instance is used)
       if (token.email) {
-        const dbUser = await prisma.user.findUnique({
-          where: { email: token.email as string },
-          select: { id: true, role: true, plan: true, language: true },
-        })
-        if (dbUser) {
-          token.id = dbUser.id
-          token.role = dbUser.role
-          token.plan = dbUser.plan
-          token.language = dbUser.language
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { email: token.email as string },
+            select: { id: true, role: true, plan: true, language: true },
+          })
+          if (dbUser) {
+            token.id = dbUser.id
+            token.role = dbUser.role
+            token.plan = dbUser.plan
+            token.language = dbUser.language
+          }
+        } catch (e) {
+          console.error('JWT Callback DB Error:', e)
         }
       }
       return token
     },
-
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string
-        ;(session.user as Record<string, unknown>).role = token.role
-        ;(session.user as Record<string, unknown>).plan = token.plan
-        ;(session.user as Record<string, unknown>).language = token.language
+        ;(session.user as any).role = token.role
+        ;(session.user as any).plan = token.plan
+        ;(session.user as any).language = token.language
       }
       return session
     },
   },
-
-  events: {
-    async createUser({ user }) {
-      // Auto-create analytics & settings for new users
-      await Promise.all([
-        prisma.userSettings.create({ data: { userId: user.id! } }),
-        prisma.learningAnalytics.create({ data: { userId: user.id! } }),
-      ])
-    },
-  },
-
-  pages: {
-    signIn: '/login',
-    error: '/login',
-  },
-
-  secret: process.env.NEXTAUTH_SECRET,
-  debug: process.env.NODE_ENV === 'development',
 })
 
 // ─── Registration helper ──────────────────────────────────────────────────────
@@ -135,13 +108,4 @@ export async function registerUser(name: string, email: string, password: string
   ])
 
   return user
-}
-
-// ─── Auth helper for API routes ───────────────────────────────────────────────
-export async function requireAuth(request: Request): Promise<{ userId: string; email: string }> {
-  const session = await auth()
-  if (!session?.user?.id) {
-    throw new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
-  }
-  return { userId: session.user.id, email: session.user.email! }
 }

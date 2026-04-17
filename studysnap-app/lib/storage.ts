@@ -11,7 +11,7 @@ export async function uploadToBlob(
     contentType,
     addRandomSuffix: true,
   })
-  return { url: blob.url, size: blob.size, pathname: blob.pathname }
+  return { url: blob.url, size: 0, pathname: blob.pathname }
 }
 
 // ─── Upload raw buffer ────────────────────────────────────────────────────────

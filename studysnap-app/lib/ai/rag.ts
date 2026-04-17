@@ -64,8 +64,8 @@ export async function indexMaterial(
       chunkIndex: index,
       startChar: chunk.startChar,
       endChar: chunk.endChar,
-      embedding: allEmbeddings[index] as unknown as Record<string, unknown>,
-      metadata: { source: sourceTitle },
+      embedding: allEmbeddings[index] as any,
+      metadata: { source: sourceTitle } as any,
     })),
   })
 

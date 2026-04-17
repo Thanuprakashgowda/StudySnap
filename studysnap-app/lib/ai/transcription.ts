@@ -28,7 +28,7 @@ export async function transcribeWithWhisper(
   const buffer = await fetchBlobAsBuffer(fileUrl)
 
   // Create a File object for the Whisper API
-  const file = new File([buffer], filename, {
+  const file = new File([buffer as any], filename, {
     type: getMimeTypeForWhisper(filename),
   })
 

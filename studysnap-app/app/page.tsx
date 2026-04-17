@@ -127,7 +127,7 @@ export default function LandingPage() {
           <button onClick={toggleTheme} className="btn btn-ghost btn-icon" aria-label="Toggle theme">
             {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
           </button>
-          <Link href="/login" className="btn btn-secondary btn-sm" style={{ display: window?.innerWidth < 768 ? 'none' : '' }}>Log in</Link>
+          <Link href="/login" className="btn btn-secondary btn-sm" style={{ display: (typeof window !== 'undefined' && window.innerWidth < 768) ? 'none' : '' }}>Log in</Link>
           <Link href="/signup" className="btn btn-primary btn-sm">Get Started</Link>
           <button onClick={() => setMenuOpen(o => !o)} className="btn btn-ghost btn-icon" style={{ display: 'block' }} aria-label="Menu">
             {menuOpen ? <X size={18} /> : <Menu size={18} />}

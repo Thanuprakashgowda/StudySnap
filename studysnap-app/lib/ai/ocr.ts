@@ -12,8 +12,9 @@ export type OcrResult = {
 // ─── PDF text extraction (no OCR needed if text-based) ───────────────────────
 export async function extractPdfText(fileUrl: string): Promise<OcrResult> {
   try {
-    // Dynamic import to avoid SSR issues
-    const pdfParse = (await import('pdf-parse')).default
+    // Dynamic import to avoid SSR and CJS/ESM interop issues
+    const pdf = await import('pdf-parse')
+    const pdfParse = (pdf as any).default || pdf
     const buffer = await fetchBlobAsBuffer(fileUrl)
     const data = await pdfParse(buffer)
 
