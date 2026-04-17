@@ -1,0 +1,503 @@
+// This is your Prisma schema file
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth (NextAuth v5) ───────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?   // hashed with bcrypt (for credentials provider)
+  role          String    @default("student") // student | teacher | admin
+  plan          String    @default("free")    // free | pro | team
+  language      String    @default("en")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // NextAuth relations
+  accounts Account[]
+  sessions Session[]
+
+  // StudySnap relations
+  materials   StudyMaterial[]
+  notes       Note[]
+  quizzes     Quiz[]
+  quizAttempts QuizAttempt[]
+  flashcardDecks FlashcardDeck[]
+  chatSessions   ChatSession[]
+  workspaces     WorkspaceMember[]
+  analytics      LearningAnalytics?
+  settings       UserSettings?
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model UserSettings {
+  id              String  @id @default(cuid())
+  userId          String  @unique
+  theme           String  @default("dark")
+  language        String  @default("en")
+  notifications   Boolean @default(true)
+  emailDigest     Boolean @default(true)
+  autoTranscribe  Boolean @default(true)
+  defaultSubject  String  @default("")
+  exportFormat    String  @default("pdf")
+  highContrast    Boolean @default(false)
+  fontSize        String  @default("md")
+  reduceMotion    Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// ─── Study Materials ──────────────────────────────────────────────────────────
+
+model StudyMaterial {
+  id                 String   @id @default(cuid())
+  userId             String
+  title              String
+  subject            String   @default("")
+  description        String?  @db.Text
+  fileType           String   // pdf | video | audio | text | image | url
+  fileSize           Int      @default(0)
+  fileUrl            String   // Vercel Blob URL
+  originalName       String   @default("")
+  transcription      String?  @db.Text
+  language           String   @default("en")
+  tags               String[] @default([])
+  status             String   @default("uploading") // uploading | processing | ready | error
+  processingProgress Int      @default(0)
+  isPublic           Boolean  @default(false)
+  wordCount          Int?
+  pageCount          Int?
+  duration           Int?     // seconds
+  sourceUrl          String?
+  errorMessage       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notes      Note[]
+  quizzes    Quiz[]
+  flashcardDecks FlashcardDeck[]
+  chatSessions   ChatSession[]
+  chunks     MaterialChunk[]
+  sharedWith MaterialShare[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("study_materials")
+}
+
+model MaterialShare {
+  id         String @id @default(cuid())
+  materialId String
+  userId     String
+  permission String @default("view") // view | edit
+
+  material StudyMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@unique([materialId, userId])
+  @@map("material_shares")
+}
+
+// ─── RAG: Chunked Embeddings ──────────────────────────────────────────────────
+
+model MaterialChunk {
+  id         String   @id @default(cuid())
+  materialId String
+  content    String   @db.Text    // the actual text chunk
+  chunkIndex Int                   // order within material
+  startChar  Int                   // character offset in transcription
+  endChar    Int
+  embedding  Json                  // float[] stored as JSON array (upgrade to pgvector in prod)
+  metadata   Json?                 // page number, timestamp, etc.
+  createdAt  DateTime @default(now())
+
+  material StudyMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@index([materialId])
+  @@map("material_chunks")
+}
+
+// ─── Notes ────────────────────────────────────────────────────────────────────
+
+model Note {
+  id          String   @id @default(cuid())
+  materialId  String
+  userId      String
+  title       String
+  content     String   @db.Text
+  summary     String   @db.Text
+  keyPoints   String[] @default([])
+  tags        String[] @default([])
+  language    String   @default("en")
+  isEdited    Boolean  @default(false)
+  isFavorite  Boolean  @default(false)
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  material StudyMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  citations Citation[]
+  history   NoteVersion[]
+  collaborators NoteCollaborator[]
+
+  @@index([userId])
+  @@index([materialId])
+  @@map("notes")
+}
+
+model NoteVersion {
+  id        String   @id @default(cuid())
+  noteId    String
+  version   Int
+  content   String   @db.Text
+  editedBy  String
+  editedAt  DateTime @default(now())
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@map("note_versions")
+}
+
+model NoteCollaborator {
+  id     String @id @default(cuid())
+  noteId String
+  userId String
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@unique([noteId, userId])
+  @@map("note_collaborators")
+}
+
+model Citation {
+  id         String  @id @default(cuid())
+  noteId     String?
+  chunkId    String?
+  text       String  @db.Text
+  source     String
+  page       Int?
+  timestamp  Int?    // seconds
+  confidence Float   @default(0.9)
+
+  note Note? @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@map("citations")
+}
+
+// ─── Quizzes ──────────────────────────────────────────────────────────────────
+
+model Quiz {
+  id           String   @id @default(cuid())
+  materialId   String
+  userId       String
+  title        String
+  subject      String   @default("")
+  difficulty   String   @default("adaptive")
+  tags         String[] @default([])
+  timeLimit    Int?
+  shuffleQ     Boolean  @default(true)
+  shuffleOpts  Boolean  @default(true)
+  showExplain  Boolean  @default(true)
+  adaptive     Boolean  @default(true)
+  passingScore Int      @default(70)
+  createdAt    DateTime @default(now())
+
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  material  StudyMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  questions QuizQuestion[]
+  attempts  QuizAttempt[]
+
+  @@index([userId])
+  @@map("quizzes")
+}
+
+model QuizQuestion {
+  id           String   @id @default(cuid())
+  quizId       String
+  type         String   @default("mcq") // mcq | true-false | short-answer | fill-blank
+  question     String   @db.Text
+  options      String[] @default([])
+  answer       String
+  explanation  String   @db.Text
+  difficulty   String   @default("medium")
+  topic        String   @default("")
+  citationText String?  @db.Text
+  citationSrc  String?
+  citationPage Int?
+  confidence   Float    @default(0.9)
+  timesSeen    Int      @default(0)
+  timesCorrect Int      @default(0)
+  order        Int      @default(0)
+
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@map("quiz_questions")
+}
+
+model QuizAttempt {
+  id             String   @id @default(cuid())
+  quizId         String
+  userId         String
+  answers        Json     // Record<questionId, answer>
+  score          Int
+  totalQuestions Int
+  correct        Int
+  timeSpent      Int      // seconds
+  feedback       String?  @db.Text
+  completedAt    DateTime @default(now())
+
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("quiz_attempts")
+}
+
+// ─── Flashcards ───────────────────────────────────────────────────────────────
+
+model FlashcardDeck {
+  id         String   @id @default(cuid())
+  materialId String
+  userId     String
+  title      String
+  subject    String   @default("")
+  tags       String[] @default([])
+  nextReview DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  material StudyMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  cards    Flashcard[]
+
+  @@index([userId])
+  @@map("flashcard_decks")
+}
+
+model Flashcard {
+  id           String   @id @default(cuid())
+  deckId       String
+  front        String   @db.Text
+  back         String   @db.Text
+  hint         String?
+  topic        String   @default("")
+  citationText String?  @db.Text
+  citationSrc  String?
+  citationPage Int?
+  confidence   Float    @default(0.9)
+  difficulty   Int      @default(3) // 1-5 SRS factor
+  nextReview   DateTime @default(now())
+  reviewCount  Int      @default(0)
+  lastResult   String?  // again | hard | good | easy
+  createdAt    DateTime @default(now())
+
+  deck FlashcardDeck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@index([deckId])
+  @@map("flashcards")
+}
+
+// ─── AI Tutor Chat ────────────────────────────────────────────────────────────
+
+model ChatSession {
+  id         String   @id @default(cuid())
+  userId     String
+  materialId String?
+  title      String   @default("New Chat")
+  model      String   @default("gemini-1.5-flash")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  material StudyMaterial? @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  messages ChatMessage[]
+
+  @@index([userId])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  role      String   // user | assistant | system
+  content   String   @db.Text
+  citations Json?    // Citation[]
+  tokens    Int?
+  isError   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("chat_messages")
+}
+
+// ─── Analytics ────────────────────────────────────────────────────────────────
+
+model LearningAnalytics {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  streak              Int      @default(0)
+  lastStudyDate       DateTime?
+  totalStudyTime      Int      @default(0) // minutes
+  materialsStudied    Int      @default(0)
+  notesCreated        Int      @default(0)
+  flashcardsReviewed  Int      @default(0)
+  quizzesTaken        Int      @default(0)
+  averageScore        Float    @default(0)
+  learningVelocity    Float    @default(1.0)
+  updatedAt           DateTime @updatedAt
+
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions   StudySession[]
+  subjectStats SubjectStat[]
+
+  @@map("learning_analytics")
+}
+
+model StudySession {
+  id          String   @id @default(cuid())
+  analyticsId String
+  date        DateTime @default(now())
+  duration    Int      @default(0) // minutes
+  quizScore   Int?
+  activity    String   @default("study") // study | quiz | flashcard | tutor
+
+  analytics LearningAnalytics @relation(fields: [analyticsId], references: [id], onDelete: Cascade)
+
+  @@index([analyticsId])
+  @@map("study_sessions")
+}
+
+model SubjectStat {
+  id          String @id @default(cuid())
+  analyticsId String
+  subject     String
+  score       Float  @default(0)
+  time        Int    @default(0)
+  materials   Int    @default(0)
+
+  analytics LearningAnalytics @relation(fields: [analyticsId], references: [id], onDelete: Cascade)
+
+  @@unique([analyticsId, subject])
+  @@map("subject_stats")
+}
+
+// ─── Collaboration ────────────────────────────────────────────────────────────
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  ownerId     String
+  isPublic    Boolean  @default(false)
+  inviteCode  String   @unique @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     WorkspaceMember[]
+  discussions Discussion[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id         String   @id @default(cuid())
+  workspaceId String
+  userId     String
+  role       String   @default("viewer") // owner | editor | viewer
+  joinedAt   DateTime @default(now())
+  lastActive DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_members")
+}
+
+model Discussion {
+  id          String   @id @default(cuid())
+  workspaceId String
+  authorId    String
+  authorName  String
+  content     String   @db.Text
+  noteId      String?
+  isResolved  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  replies   DiscussionReply[]
+
+  @@map("discussions")
+}
+
+model DiscussionReply {
+  id           String   @id @default(cuid())
+  discussionId String
+  authorId     String
+  authorName   String
+  content      String   @db.Text
+  createdAt    DateTime @default(now())
+
+  discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+
+  @@map("discussion_replies")
+}
