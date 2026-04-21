@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { BookOpen, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { useApp } from '@/lib/context'
 
+import { signIn } from 'next-auth/react'
+
 export default function LoginPage() {
   const router = useRouter()
   const { login } = useApp()
@@ -18,17 +20,39 @@ export default function LoginPage() {
     setError('')
     if (!form.email || !form.password) { setError('Please fill in all fields.'); return }
     setLoading(true)
-    const ok = await login(form.email, form.password)
-    setLoading(false)
-    if (ok) router.push('/dashboard')
-    else setError('Invalid credentials. Use the demo account.')
+    
+    // Auth via NextAuth
+    const res = await signIn('credentials', {
+      redirect: false,
+      email: form.email,
+      password: form.password,
+    })
+
+    if (res?.error) {
+      setError('Invalid credentials. Use the demo account.')
+      setLoading(false)
+    } else {
+      await login(form.email, form.password)
+      router.push('/dashboard')
+    }
   }
 
   const handleDemo = async () => {
     setLoading(true)
-    await login('alex.johnson@university.edu', 'demo1234')
-    setLoading(false)
-    router.push('/dashboard')
+    
+    const res = await signIn('credentials', {
+      redirect: false,
+      email: 'alex.johnson@university.edu',
+      password: 'demo1234',
+    })
+
+    if (res?.error) {
+      setError('Failed to login with demo account.')
+      setLoading(false)
+    } else {
+      await login('alex.johnson@university.edu', 'demo1234')
+      router.push('/dashboard')
+    }
   }
 
   return (
